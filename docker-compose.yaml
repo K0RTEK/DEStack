@@ -1,0 +1,114 @@
+services:
+  postgres-airflow:
+    image: postgres:13-alpine
+    container_name: postgres-airflow
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    volumes:
+      - postgres-airflow-data:/var/lib/postgresql/data
+    networks:
+      - spark-network
+    restart: unless-stopped
+
+  airflow-init:
+    build:
+      context: ./Airflow
+      dockerfile: Dockerfile
+    container_name: airflow-init
+    depends_on:
+      postgres-airflow:
+        condition: service_healthy
+    environment:
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres-airflow/airflow
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+      - _AIRFLOW_DB_UPGRADE=true
+      - _AIRFLOW_WWW_USER_CREATE=true
+      - _AIRFLOW_WWW_USER_USERNAME=admin
+      - _AIRFLOW_WWW_USER_PASSWORD=admin
+      - _AIRFLOW_WWW_USER_FIRSTNAME=Admin
+      - _AIRFLOW_WWW_USER_LASTNAME=User
+      - _AIRFLOW_WWW_USER_EMAIL=admin@example.com
+      - _AIRFLOW_WWW_USER_ROLE=Admin
+    command: >
+      bash -c "airflow db init &&
+               echo 'Пользователь admin создан с паролем: admin'"
+    networks:
+      - spark-network
+
+  airflow-scheduler:
+    build:
+      context: ./Airflow
+      dockerfile: Dockerfile
+    container_name: airflow-scheduler
+    depends_on:
+      - postgres-airflow
+      - airflow-init
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres-airflow/airflow
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+      - PYSPARK_PYTHON=python3
+    volumes:
+      - ./Airflow/dags:/opt/airflow/dags
+      - ./Airflow/logs:/opt/airflow/logs
+      - ./Jupyter/notebooks:/opt/airflow/notebooks
+      - ./Jupyter/data:/opt/airflow/data
+    command: scheduler
+    networks:
+      - spark-network
+    restart: unless-stopped
+
+  airflow-webserver:
+    build:
+      context: ./Airflow
+      dockerfile: Dockerfile
+    container_name: airflow-webserver
+    depends_on:
+      - postgres-airflow
+      - airflow-init
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres-airflow/airflow
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+      - PYSPARK_PYTHON=python3
+    volumes:
+      - ./Airflow/dags:/opt/airflow/dags
+      - ./Airflow/logs:/opt/airflow/logs
+      - ./Jupyter/notebooks:/opt/airflow/notebooks
+      - ./Jupyter/data:/opt/airflow/data
+    ports:
+      - "8080:8080"
+    command: webserver
+    networks:
+      - spark-network
+    restart: unless-stopped
+
+  pyspark-jupyter:
+    build:
+      dockerfile: ./Jupyter/Dockerfile
+    container_name: pyspark-jupyterlab
+    ports:
+      - "8888:8888"
+      - "4040:4040"
+      - "18080:18080"
+    volumes:
+      - ./Jupyter/notebooks:/home/sparkuser/notebooks
+      - ./Jupyter/data:/home/sparkuser/data
+      - ./Jupyter/spark-events:/opt/spark/spark-events
+    environment:
+      - PYSPARK_PYTHON=python3
+      - PYSPARK_DRIVER_PYTHON=jupyter
+      - PYSPARK_DRIVER_PYTHON_OPTS=lab
+    networks:
+      - spark-network
+    restart: unless-stopped
+
+volumes:
+  postgres-airflow-data:
+
+networks:
+  spark-network:
+    driver: bridge
