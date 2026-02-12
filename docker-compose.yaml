@@ -11,6 +11,112 @@ services:
     networks:
       - spark-network
     restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U airflow -d airflow" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  zookeeper:
+    image: zookeeper:3.9
+    container_name: zookeeper
+    restart: unless-stopped
+    ports:
+      - "2181:2181"
+    environment:
+      ZOO_CLIENT_PORT: 2181
+      ZOO_4LW_COMMANDS_WHITELIST: ruok, srvr, mntr, stat, conf, isro
+      ZOO_STANDALONE_ENABLED: "true"
+      ZOO_ADMINSERVER_ENABLED: "true"
+    healthcheck:
+      test: [ "CMD", "bash", "-c", "echo ruok | nc localhost 2181 | grep imok" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - spark-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.3.0
+    container_name: kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      - "29092:29092"
+      - "9092:9092"
+    healthcheck:
+      test: [ "CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - spark-network
+    restart: unless-stopped
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    container_name: kafka-ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=local
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
+      - KAFKA_CLUSTERS_0_ZOOKEEPER=zookeeper:2181
+      - KAFKA_CLUSTERS_0_PROPERTIES_SECURITY_PROTOCOL=PLAINTEXT
+    ports:
+      - "8081:8080"
+    networks:
+      - spark-network
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - spark-network
+    restart: unless-stopped
+
+  createbuckets:
+    image: minio/mc:latest
+    container_name: createbuckets
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 10;
+      /usr/bin/mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      /usr/bin/mc mb myminio/airflow-data;
+      /usr/bin/mc mb myminio/spark-data;
+      /usr/bin/mc mb myminio/kafka-data;
+      /usr/bin/mc anonymous set download myminio/airflow-data;
+      echo 'Buckets created successfully';
+      "
+    networks:
+      - spark-network
 
   airflow-init:
     build:
@@ -18,8 +124,8 @@ services:
       dockerfile: Dockerfile
     container_name: airflow-init
     depends_on:
-      postgres-airflow:
-        condition: service_healthy
+      - postgres-airflow
+      - minio
     environment:
       - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres-airflow/airflow
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
@@ -32,8 +138,16 @@ services:
       - _AIRFLOW_WWW_USER_LASTNAME=User
       - _AIRFLOW_WWW_USER_EMAIL=admin@example.com
       - _AIRFLOW_WWW_USER_ROLE=Admin
+      - AIRFLOW__CORE__FS_S3_CONN_ID=minio_s3
+      - AIRFLOW__CORE__REMOTE_BASE_LOG_FOLDER=s3://airflow-data/logs
+      - AIRFLOW__CORE__REMOTE_LOG_CONN_ID=minio_s3
     command: >
       bash -c "airflow db init &&
+               airflow connections add 'minio_s3' \
+                 --conn-type 'aws' \
+                 --conn-login 'minioadmin' \
+                 --conn-password 'minioadmin' \
+                 --conn-extra '{\"endpoint_url\": \"http://minio:9000\", \"region_name\": \"us-east-1\"}' &&
                echo 'Пользователь admin создан с паролем: admin'"
     networks:
       - spark-network
@@ -46,11 +160,16 @@ services:
     depends_on:
       - postgres-airflow
       - airflow-init
+      - kafka
+      - minio
     environment:
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
       - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres-airflow/airflow
       - AIRFLOW__CORE__LOAD_EXAMPLES=false
       - PYSPARK_PYTHON=python3
+      - AIRFLOW__CORE__FS_S3_CONN_ID=minio_s3
+      - AIRFLOW__CORE__REMOTE_BASE_LOG_FOLDER=s3://airflow-data/logs
+      - AIRFLOW__CORE__REMOTE_LOG_CONN_ID=minio_s3
     volumes:
       - ./Airflow/dags:/opt/airflow/dags
       - ./Airflow/logs:/opt/airflow/logs
@@ -69,11 +188,16 @@ services:
     depends_on:
       - postgres-airflow
       - airflow-init
+      - kafka
+      - minio
     environment:
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
       - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres-airflow/airflow
       - AIRFLOW__CORE__LOAD_EXAMPLES=false
       - PYSPARK_PYTHON=python3
+      - AIRFLOW__CORE__FS_S3_CONN_ID=minio_s3
+      - AIRFLOW__CORE__REMOTE_BASE_LOG_FOLDER=s3://airflow-data/logs
+      - AIRFLOW__CORE__REMOTE_LOG_CONN_ID=minio_s3
     volumes:
       - ./Airflow/dags:/opt/airflow/dags
       - ./Airflow/logs:/opt/airflow/logs
@@ -88,8 +212,12 @@ services:
 
   pyspark-jupyter:
     build:
-      dockerfile: ./Jupyter/Dockerfile
+      context: ./Jupyter
+      dockerfile: Dockerfile
     container_name: pyspark-jupyterlab
+    depends_on:
+      - kafka
+      - minio
     ports:
       - "8888:8888"
       - "4040:4040"
@@ -102,12 +230,74 @@ services:
       - PYSPARK_PYTHON=python3
       - PYSPARK_DRIVER_PYTHON=jupyter
       - PYSPARK_DRIVER_PYTHON_OPTS=lab
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
     networks:
       - spark-network
     restart: unless-stopped
 
+  postgres-app:
+    image: postgres:16-alpine
+    container_name: postgres-app
+    environment:
+      POSTGRES_DB: app_db
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: app_password
+      POSTGRES_MULTIPLE_DATABASES: "app_db,analytics_db,warehouse_db"
+    volumes:
+      - postgres-app-data:/var/lib/postgresql/data
+      - ./Postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5433:5432"
+    networks:
+      - spark-network
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U app_user -d app_db" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+      - ./Pgadmin/servers.json:/pgadmin4/servers.json
+    ports:
+      - "5050:80"
+    depends_on:
+      postgres-app:
+        condition: service_healthy
+      postgres-airflow:
+        condition: service_healthy
+    networks:
+      - spark-network
+    restart: unless-stopped
+
+  adminer:
+    image: adminer:latest
+    container_name: adminer
+    ports:
+      - "8082:8080"
+    networks:
+      - spark-network
+    restart: unless-stopped
+
+
 volumes:
   postgres-airflow-data:
+  minio-data:
+  zookeeper-data:
+  kafka-data:
+  postgres-app-data:
+  pgadmin-data:
 
 networks:
   spark-network:

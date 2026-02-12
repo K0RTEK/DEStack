@@ -1,0 +1,26 @@
+{
+    "Servers": {
+        "1": {
+            "Name": "App PostgreSQL",
+            "Group": "Servers",
+            "Host": "postgres-app",
+            "Port": 5432,
+            "MaintenanceDB": "app_db",
+            "Username": "app_user",
+            "Password": "app_password",
+            "SSLMode": "prefer",
+            "Comment": "Основная БД для приложений"
+        },
+        "2": {
+            "Name": "Airflow PostgreSQL",
+            "Group": "Servers",
+            "Host": "postgres-airflow",
+            "Port": 5432,
+            "MaintenanceDB": "airflow",
+            "Username": "airflow",
+            "Password": "airflow",
+            "SSLMode": "prefer",
+            "Comment": "База данных Airflow метаданных"
+        }
+    }
+}
