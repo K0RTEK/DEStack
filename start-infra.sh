@@ -16,31 +16,30 @@ sleep 30
 
 echo "Проверка PostgreSQL для приложений..."
 if docker-compose exec postgres-app pg_isready -U app_user -d app_db; then
-    echo "✓ PostgreSQL приложений готов"
+    echo "PostgreSQL приложений готов"
 else
-    echo "✗ PostgreSQL приложений не готов"
+    echo "PostgreSQL приложений не готов"
     docker-compose logs postgres-app --tail=20
     exit 1
 fi
 
 echo "Проверка PostgreSQL для Airflow..."
 if docker-compose exec postgres-airflow pg_isready -U airflow -d airflow; then
-    echo "✓ PostgreSQL Airflow готов"
+    echo "PostgreSQL Airflow готов"
 else
-    echo "✗ PostgreSQL Airflow не готов"
+    echo "PostgreSQL Airflow не готов"
     docker-compose logs postgres-airflow --tail=20
     exit 1
 fi
 
 echo "Проверка Zookeeper..."
 if echo ruok | nc localhost 2181 2>/dev/null | grep -q imok; then
-    echo "✓ Zookeeper готов"
+    echo "Zookeeper готов"
 elif docker-compose ps zookeeper | grep -q "(healthy)"; then
-    echo "✓ Zookeeper готов (healthcheck)"
+    echo "Zookeeper готов (healthcheck)"
 else
-    echo "✗ Zookeeper не готов"
+    echo "Zookeeper не готов"
     docker-compose logs zookeeper --tail=20
-    # Пробуем запустить без строгой проверки
     echo "Продолжаем запуск..."
 fi
 
@@ -56,11 +55,11 @@ if docker-compose exec kafka kafka-topics --bootstrap-server localhost:9092 --li
     docker-compose exec kafka kafka-topics --bootstrap-server localhost:9092 --create --topic test_topic --partitions 3 --replication-factor 1 2>/dev/null || true
     docker-compose exec kafka kafka-topics --bootstrap-server localhost:9092 --create --topic sensor_data --partitions 2 --replication-factor 1 2>/dev/null || true
 else
-    echo "⚠️  Kafka не отвечает, проверяем альтернативным способом..."
+    echo "Kafka не отвечает, проверяем альтернативным способом..."
     if docker-compose logs kafka --tail=10 | grep -q "started"; then
-        echo "✓ Kafka запущена (по логам)"
+        echo "Kafka запущена (по логам)"
     else
-        echo "✗ Kafka не запустилась"
+        echo "Kafka не запустилась"
         docker-compose logs kafka --tail=30
         echo "Продолжаем запуск других сервисов..."
     fi
@@ -80,9 +79,9 @@ sleep 30
 
 echo "Проверка Airflow инициализации..."
 if docker-compose logs airflow-init --tail=20 | grep -q "Пользователь admin создан"; then
-    echo "✓ Airflow инициализирован"
+    echo "Airflow инициализирован"
 else
-    echo "⚠️  Airflow инициализация, проверяем лог..."
+  echo "Airflow инициализация, проверяем лог..."
     docker-compose logs airflow-init --tail=10
 fi
 
@@ -104,10 +103,10 @@ check_http_service() {
     local timeout=10
 
     if curl -f -s -o /dev/null --max-time $timeout "$url"; then
-        echo "✓ $name доступен: $url"
+        echo "$name доступен: $url"
         return 0
     else
-        echo "⚠️  $name недоступен: $url"
+        echo "$name недоступен: $url"
         return 1
     fi
 }
@@ -124,7 +123,7 @@ check_http_service "Adminer" "http://localhost:8082" || true
 echo ""
 echo "=== Ссылки для доступа ==="
 echo ""
-echo "📊 МОНИТОРИНГ И АДМИНИСТРИРОВАНИЕ:"
+echo "МОНИТОРИНГ И АДМИНИСТРИРОВАНИЕ:"
 echo "  Kafka UI:        http://localhost:8081"
 echo "  MinIO Console:   http://localhost:9001"
 echo "     Логин: minioadmin"
@@ -135,14 +134,14 @@ echo "     Пароль: admin"
 echo "  Adminer:         http://localhost:8082"
 echo "     (укажите данные при подключении)"
 echo ""
-echo "🚀 ОСНОВНЫЕ СЕРВИСЫ:"
+echo "ОСНОВНЫЕ СЕРВИСЫ:"
 echo "  Airflow:         http://localhost:8080"
 echo "     Логин: admin"
 echo "     Пароль: admin"
 echo "  Jupyter:         http://localhost:8888"
 echo "     (без пароля)"
 echo ""
-echo "🗄️  БАЗЫ ДАННЫХ:"
+echo "БАЗЫ ДАННЫХ:"
 echo "  PostgreSQL (Airflow):    localhost:5432"
 echo "     БД: airflow"
 echo "     Пользователь: airflow"
@@ -152,12 +151,12 @@ echo "     БД: app_db"
 echo "     Пользователь: app_user"
 echo "     Пароль: app_password"
 echo ""
-echo "📡 КАФКА И ZOOKEEPER:"
+echo "КАФКА И ZOOKEEPER:"
 echo "  Kafka (внутри сети Docker):  kafka:9092"
 echo "  Kafka (с хоста):             localhost:29092"
 echo "  Zookeeper:                   localhost:2181"
 echo ""
-echo "💾 ХРАНИЛИЩА:"
+echo "ХРАНИЛИЩА:"
 echo "  MinIO API:                   http://localhost:9000"
 echo "  Buckets:"
 echo "    - airflow-data (для логов Airflow)"
@@ -170,4 +169,4 @@ echo "Остановка:                docker-compose down"
 echo "Перезапуск сервиса:       docker-compose restart [service]"
 echo "Обновить DAGs в Airflow:  docker-compose restart airflow-webserver airflow-scheduler"
 echo ""
-echo "✅ Инфраструктура запущена! Начинайте работу."
+echo "Инфраструктура запущена! Начинайте работу."
