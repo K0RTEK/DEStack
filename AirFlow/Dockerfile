@@ -30,7 +30,8 @@ RUN pip install --no-cache-dir \
     fastparquet==2023.10.1 \
     psycopg2-binary \
     sqlalchemy \
-    sqlalchemy-redshift
+    sqlalchemy-redshift \
+    pymongo
 
 USER root
 

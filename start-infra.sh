@@ -9,7 +9,7 @@ echo "=== Создание необходимых директорий ==="
 mkdir -p ./postgres ./pgadmin ./Jupyter/spark-events
 
 echo "=== Запуск базовых сервисов ==="
-docker-compose up -d postgres-airflow minio zookeeper postgres-app
+docker-compose up -d postgres-airflow minio zookeeper postgres-app mongodb
 
 echo "Ожидание 30 секунд для базовых сервисов..."
 sleep 30

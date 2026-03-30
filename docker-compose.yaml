@@ -162,6 +162,7 @@ services:
       - airflow-init
       - kafka
       - minio
+      - mongodb
     environment:
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
       - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres-airflow/airflow
@@ -290,6 +291,23 @@ services:
       - spark-network
     restart: unless-stopped
 
+  mongodb:
+    image: mongo:latest
+    container_name: mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: kirill
+      MONGO_INITDB_ROOT_PASSWORD: 5567
+      MONGO_INITDB_DATABASE: admin
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+    networks:
+      - mongo-network
+      - spark-network
+
 
 volumes:
   postgres-airflow-data:
@@ -298,7 +316,11 @@ volumes:
   kafka-data:
   postgres-app-data:
   pgadmin-data:
+  mongodb_data:
+  mongodb_config:
 
 networks:
   spark-network:
+    driver: bridge
+  mongo-network:
     driver: bridge
