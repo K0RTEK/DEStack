@@ -1,0 +1,1 @@
+FROM bitnamilegacy/minio:2025.7.23-debian-12-r5

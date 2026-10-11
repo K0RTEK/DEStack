@@ -207,10 +207,10 @@ marimo/_lsp/
 __marimo__/
 
 
-Jupyter/data
-Jupyter/notebooks
-Jupyter/spark-events
-Jupyter/requirements.txt
+services/jupyter/data
+services/jupyter/notebooks
+services/jupyter/spark-events
+services/jupyter/requirements.txt
 
-AirFlow/logs
-AirFlow/dags
+services/airflow/logs
+services/airflow/dags

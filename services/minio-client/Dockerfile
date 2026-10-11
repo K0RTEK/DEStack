@@ -1,0 +1,1 @@
+FROM bitnamilegacy/minio-client:2025.7.21-debian-12-r3

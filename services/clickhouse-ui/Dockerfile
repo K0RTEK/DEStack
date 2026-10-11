@@ -1,0 +1,1 @@
+FROM ghcr.io/caioricciuti/ch-ui:v2.16.0

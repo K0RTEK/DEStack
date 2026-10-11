@@ -1,6 +1,8 @@
 services:
   postgres-airflow:
-    image: postgres:13-alpine
+    build:
+      context: ./services/postgres
+      dockerfile: Dockerfile.airflow
     container_name: postgres-airflow
     environment:
       - POSTGRES_USER=airflow
@@ -19,7 +21,8 @@ services:
       start_period: 30s
 
   zookeeper:
-    image: zookeeper:3.9
+    build:
+      context: ./services/zookeeper
     container_name: zookeeper
     restart: unless-stopped
     ports:
@@ -39,7 +42,8 @@ services:
       - spark-network
 
   kafka:
-    image: confluentinc/cp-kafka:7.3.0
+    build:
+      context: ./services/kafka
     container_name: kafka
     depends_on:
       zookeeper:
@@ -68,7 +72,8 @@ services:
     restart: unless-stopped
 
   kafka-ui:
-    image: provectuslabs/kafka-ui:v0.7.2
+    build:
+      context: ./services/kafka-ui
     container_name: kafka-ui
     depends_on:
       kafka:
@@ -84,15 +89,39 @@ services:
       - spark-network
     restart: unless-stopped
 
+  debezium-connect:
+    build:
+      context: ./services/debezium
+    container_name: debezium-connect
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: 1
+      CONFIG_STORAGE_TOPIC: connect_configs
+      OFFSET_STORAGE_TOPIC: connect_offsets
+      STATUS_STORAGE_TOPIC: connect_statuses
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+    ports:
+      - "8083:8083"
+    networks:
+      - spark-network
+    restart: unless-stopped
+
   minio:
-    image: minio/minio:latest
+    build:
+      context: ./services/minio
     container_name: minio
-    command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     volumes:
-      - minio-data:/data
+      - minio-data:/bitnami/minio/data
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -101,18 +130,19 @@ services:
     restart: unless-stopped
 
   createbuckets:
-    image: minio/mc:latest
+    build:
+      context: ./services/minio-client
     container_name: createbuckets
     depends_on:
       - minio
     entrypoint: >
       /bin/sh -c "
       sleep 10;
-      /usr/bin/mc alias set myminio http://minio:9000 minioadmin minioadmin;
-      /usr/bin/mc mb myminio/airflow-data;
-      /usr/bin/mc mb myminio/spark-data;
-      /usr/bin/mc mb myminio/kafka-data;
-      /usr/bin/mc anonymous set download myminio/airflow-data;
+      /opt/bitnami/minio-client/bin/mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      /opt/bitnami/minio-client/bin/mc mb --ignore-existing myminio/airflow-data;
+      /opt/bitnami/minio-client/bin/mc mb --ignore-existing myminio/spark-data;
+      /opt/bitnami/minio-client/bin/mc mb --ignore-existing myminio/kafka-data;
+      /opt/bitnami/minio-client/bin/mc anonymous set download myminio/airflow-data;
       echo 'Buckets created successfully';
       "
     networks:
@@ -120,7 +150,7 @@ services:
 
   airflow-init:
     build:
-      context: ./Airflow
+      context: ./services/airflow
       dockerfile: Dockerfile
     container_name: airflow-init
     depends_on:
@@ -154,7 +184,7 @@ services:
 
   airflow-scheduler:
     build:
-      context: ./Airflow
+      context: ./services/airflow
       dockerfile: Dockerfile
     container_name: airflow-scheduler
     depends_on:
@@ -172,10 +202,10 @@ services:
       - AIRFLOW__CORE__REMOTE_BASE_LOG_FOLDER=s3://airflow-data/logs
       - AIRFLOW__CORE__REMOTE_LOG_CONN_ID=minio_s3
     volumes:
-      - ./Airflow/dags:/opt/airflow/dags
-      - ./Airflow/logs:/opt/airflow/logs
-      - ./Jupyter/notebooks:/opt/airflow/notebooks
-      - ./Jupyter/data:/opt/airflow/data
+      - ./services/airflow/dags:/opt/airflow/dags
+      - ./services/airflow/logs:/opt/airflow/logs
+      - ./services/jupyter/notebooks:/opt/airflow/notebooks
+      - ./services/jupyter/data:/opt/airflow/data
     command: scheduler
     networks:
       - spark-network
@@ -183,7 +213,7 @@ services:
 
   airflow-webserver:
     build:
-      context: ./Airflow
+      context: ./services/airflow
       dockerfile: Dockerfile
     container_name: airflow-webserver
     depends_on:
@@ -200,10 +230,10 @@ services:
       - AIRFLOW__CORE__REMOTE_BASE_LOG_FOLDER=s3://airflow-data/logs
       - AIRFLOW__CORE__REMOTE_LOG_CONN_ID=minio_s3
     volumes:
-      - ./Airflow/dags:/opt/airflow/dags
-      - ./Airflow/logs:/opt/airflow/logs
-      - ./Jupyter/notebooks:/opt/airflow/notebooks
-      - ./Jupyter/data:/opt/airflow/data
+      - ./services/airflow/dags:/opt/airflow/dags
+      - ./services/airflow/logs:/opt/airflow/logs
+      - ./services/jupyter/notebooks:/opt/airflow/notebooks
+      - ./services/jupyter/data:/opt/airflow/data
     ports:
       - "8080:8080"
     command: webserver
@@ -213,7 +243,7 @@ services:
 
   pyspark-jupyter:
     build:
-      context: ./Jupyter
+      context: ./services/jupyter
       dockerfile: Dockerfile
     container_name: pyspark-jupyterlab
     depends_on:
@@ -224,9 +254,9 @@ services:
       - "4040:4040"
       - "18080:18080"
     volumes:
-      - ./Jupyter/notebooks:/home/sparkuser/notebooks
-      - ./Jupyter/data:/home/sparkuser/data
-      - ./Jupyter/spark-events:/opt/spark/spark-events
+      - ./services/jupyter/notebooks:/home/sparkuser/notebooks
+      - ./services/jupyter/data:/home/sparkuser/data
+      - ./services/jupyter/spark-events:/opt/spark/spark-events
     environment:
       - PYSPARK_PYTHON=python3
       - PYSPARK_DRIVER_PYTHON=jupyter
@@ -240,8 +270,17 @@ services:
     restart: unless-stopped
 
   postgres-app:
-    image: postgres:16-alpine
+    build:
+      context: ./services/postgres
     container_name: postgres-app
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=logical"
+      - "-c"
+      - "max_replication_slots=4"
+      - "-c"
+      - "max_wal_senders=4"
     environment:
       POSTGRES_DB: app_db
       POSTGRES_USER: app_user
@@ -249,7 +288,7 @@ services:
       POSTGRES_MULTIPLE_DATABASES: "app_db,analytics_db,warehouse_db"
     volumes:
       - postgres-app-data:/var/lib/postgresql/data
-      - ./Postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./services/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
       - "5433:5432"
     networks:
@@ -262,7 +301,8 @@ services:
       retries: 5
 
   pgadmin:
-    image: dpage/pgadmin4:latest
+    build:
+      context: ./services/pgadmin
     container_name: pgadmin
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@example.com
@@ -270,7 +310,7 @@ services:
       PGADMIN_CONFIG_SERVER_MODE: 'False'
     volumes:
       - pgadmin-data:/var/lib/pgadmin
-      - ./Pgadmin/servers.json:/pgadmin4/servers.json
+      - ./services/pgadmin/servers.json:/pgadmin4/servers.json
     ports:
       - "5050:80"
     depends_on:
@@ -283,7 +323,8 @@ services:
     restart: unless-stopped
 
   adminer:
-    image: adminer:latest
+    build:
+      context: ./services/adminer
     container_name: adminer
     ports:
       - "8082:8080"
@@ -292,7 +333,8 @@ services:
     restart: unless-stopped
 
   mongodb:
-    image: mongo:latest
+    build:
+      context: ./services/mongodb
     container_name: mongodb
     restart: unless-stopped
     environment:
@@ -308,6 +350,137 @@ services:
       - mongo-network
       - spark-network
 
+  clickhouse:
+    build:
+      context: ./services/clickhouse
+    container_name: clickhouse
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports:
+      - "8123:8123"
+      - "9009:9000"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - clickhouse-logs:/var/log/clickhouse-server
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: [ "CMD", "clickhouse-client", "--user", "clickhouse", "--password", "clickhouse", "--query", "SELECT 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - spark-network
+    restart: unless-stopped
+
+  clickhouse-ui:
+    build:
+      context: ./services/clickhouse-ui
+    container_name: clickhouse-ui
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      CLICKHOUSE_URL: http://clickhouse:8123
+      PORT: 3488
+    ports:
+      - "3488:3488"
+    volumes:
+      - ch-ui-data:/app/data
+    networks:
+      - spark-network
+    restart: unless-stopped
+
+  superset-postgres:
+    build:
+      context: ./services/postgres
+    container_name: superset-postgres
+    environment:
+      POSTGRES_DB: superset
+      POSTGRES_USER: superset
+      POSTGRES_PASSWORD: superset
+    volumes:
+      - superset-postgres-data:/var/lib/postgresql/data
+    networks:
+      - spark-network
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U superset -d superset" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  superset-redis:
+    build:
+      context: ./services/redis
+    container_name: superset-redis
+    volumes:
+      - superset-redis-data:/data
+    networks:
+      - spark-network
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  superset-init:
+    build:
+      context: ./services/superset
+    container_name: superset-init
+    depends_on:
+      superset-postgres:
+        condition: service_healthy
+      superset-redis:
+        condition: service_healthy
+    environment:
+      SUPERSET_SECRET_KEY: sandbox_superset_secret_key_change_me
+      SUPERSET_DATABASE_URI: postgresql+psycopg2://superset:superset@superset-postgres:5432/superset
+      REDIS_HOST: superset-redis
+      REDIS_PORT: "6379"
+      PYTHONPATH: /app/pythonpath
+    volumes:
+      - ./services/superset/superset_config.py:/app/pythonpath/superset_config.py:ro
+    command: >
+      /bin/sh -c "
+      superset db upgrade &&
+      (superset fab create-admin --username admin --firstname Admin --lastname User --email admin@example.com --password admin || true) &&
+      superset init &&
+      echo 'Superset initialized'
+      "
+    networks:
+      - spark-network
+
+  superset:
+    build:
+      context: ./services/superset
+    container_name: superset
+    depends_on:
+      superset-init:
+        condition: service_completed_successfully
+    environment:
+      SUPERSET_SECRET_KEY: sandbox_superset_secret_key_change_me
+      SUPERSET_DATABASE_URI: postgresql+psycopg2://superset:superset@superset-postgres:5432/superset
+      REDIS_HOST: superset-redis
+      REDIS_PORT: "6379"
+      PYTHONPATH: /app/pythonpath
+    volumes:
+      - ./services/superset/superset_config.py:/app/pythonpath/superset_config.py:ro
+    ports:
+      - "8088:8088"
+    command: >
+      /bin/sh -c "gunicorn -w 2 -k gthread --threads 4 --timeout 120 -b 0.0.0.0:8088 'superset.app:create_app()'"
+    networks:
+      - spark-network
+    restart: unless-stopped
 
 volumes:
   postgres-airflow-data:
@@ -318,6 +491,11 @@ volumes:
   pgadmin-data:
   mongodb_data:
   mongodb_config:
+  clickhouse-data:
+  clickhouse-logs:
+  ch-ui-data:
+  superset-postgres-data:
+  superset-redis-data:
 
 networks:
   spark-network:

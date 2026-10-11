@@ -6,7 +6,12 @@ echo "=== Очистка предыдущих запусков ==="
 docker-compose down -v
 
 echo "=== Создание необходимых директорий ==="
-mkdir -p ./postgres ./pgadmin ./Jupyter/spark-events
+mkdir -p ./services/postgres ./services/pgadmin \
+    ./services/airflow/dags ./services/airflow/logs \
+    ./services/jupyter/notebooks ./services/jupyter/data ./services/jupyter/spark-events
+
+echo "=== Сборка образов из services/ ==="
+docker-compose build --pull
 
 echo "=== Запуск базовых сервисов ==="
 docker-compose up -d postgres-airflow minio zookeeper postgres-app mongodb
@@ -66,7 +71,7 @@ else
 fi
 
 echo "Запуск UI сервисов и утилит..."
-docker-compose up -d kafka-ui createbuckets pgadmin adminer
+docker-compose up -d kafka-ui debezium-connect createbuckets pgadmin adminer clickhouse clickhouse-ui
 
 echo "Ожидание 20 секунд для UI сервисов..."
 sleep 20
@@ -87,6 +92,9 @@ fi
 
 echo "Запуск основных сервисов Airflow и Jupyter..."
 docker-compose up -d airflow-scheduler airflow-webserver pyspark-jupyter
+
+echo "Запуск Superset (метаданные, миграции, веб-сервер)..."
+docker-compose up -d superset
 
 echo "Ожидание 30 секунд для полного запуска..."
 sleep 30
@@ -111,21 +119,45 @@ check_http_service() {
     fi
 }
 
+wait_http_service() {
+    local name=$1
+    local url=$2
+    local timeout=${3:-120}
+    local interval=5
+    local elapsed=0
+
+    while [ "$elapsed" -lt "$timeout" ]; do
+        if curl -f -s -o /dev/null --max-time 5 "$url"; then
+            echo "$name доступен: $url (за ${elapsed}s)"
+            return 0
+        fi
+        sleep $interval
+        elapsed=$((elapsed + interval))
+    done
+    echo "$name недоступен за ${timeout}s: $url"
+    return 1
+}
+
 echo ""
 echo "Проверка HTTP сервисов:"
 
-check_http_service "MinIO Console" "http://localhost:9001/minio/health/live" || true
-check_http_service "Airflow" "http://localhost:8080/health" || true
+check_http_service "MinIO API" "http://localhost:9000/minio/health/live" || true
 check_http_service "Kafka UI" "http://localhost:8081" || true
+check_http_service "Debezium Connect" "http://localhost:8083/connectors" || true
 check_http_service "pgAdmin" "http://localhost:5050" || true
 check_http_service "Adminer" "http://localhost:8082" || true
+check_http_service "ClickHouse UI" "http://localhost:3488" || true
+wait_http_service "Airflow" "http://localhost:8080/health" 180 || true
+wait_http_service "ClickHouse" "http://localhost:8123/ping" 120 || true
+wait_http_service "Superset" "http://localhost:8088/health" 240 || true
 
 echo ""
 echo "=== Ссылки для доступа ==="
 echo ""
 echo "МОНИТОРИНГ И АДМИНИСТРИРОВАНИЕ:"
-echo "  Kafka UI:        http://localhost:8081"
-echo "  MinIO Console:   http://localhost:9001"
+echo "  Kafka UI:         http://localhost:8081"
+echo "  Debezium Connect: http://localhost:8083"
+echo "  MinIO Console:    http://localhost:9001"
 echo "     Логин: minioadmin"
 echo "     Пароль: minioadmin"
 echo "  pgAdmin:         http://localhost:5050"
@@ -133,6 +165,9 @@ echo "     Email: admin@example.com"
 echo "     Пароль: admin"
 echo "  Adminer:         http://localhost:8082"
 echo "     (укажите данные при подключении)"
+echo "  ClickHouse UI:   http://localhost:3488"
+echo "     Логин: clickhouse"
+echo "     Пароль: clickhouse"
 echo ""
 echo "ОСНОВНЫЕ СЕРВИСЫ:"
 echo "  Airflow:         http://localhost:8080"
@@ -140,6 +175,9 @@ echo "     Логин: admin"
 echo "     Пароль: admin"
 echo "  Jupyter:         http://localhost:8888"
 echo "     (без пароля)"
+echo "  Superset:        http://localhost:8088"
+echo "     Логин: admin"
+echo "     Пароль: admin"
 echo ""
 echo "БАЗЫ ДАННЫХ:"
 echo "  PostgreSQL (Airflow):    localhost:5432"
@@ -150,6 +188,11 @@ echo "  PostgreSQL (Приложения): localhost:5433"
 echo "     БД: app_db"
 echo "     Пользователь: app_user"
 echo "     Пароль: app_password"
+echo "  ClickHouse (HTTP):       localhost:8123"
+echo "     БД: default"
+echo "     Пользователь: clickhouse"
+echo "     Пароль: clickhouse"
+echo "  ClickHouse (native):     localhost:9009"
 echo ""
 echo "КАФКА И ZOOKEEPER:"
 echo "  Kafka (внутри сети Docker):  kafka:9092"
@@ -168,5 +211,7 @@ echo "Просмотр логов:           docker-compose logs -f [service]"
 echo "Остановка:                docker-compose down"
 echo "Перезапуск сервиса:       docker-compose restart [service]"
 echo "Обновить DAGs в Airflow:  docker-compose restart airflow-webserver airflow-scheduler"
+echo "Пересобрать образ:        docker-compose build [service]"
+echo "Версии инструментов:      services/<tool>/Dockerfile (строка FROM)"
 echo ""
 echo "Инфраструктура запущена! Начинайте работу."

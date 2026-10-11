@@ -1,0 +1,1 @@
+FROM adminer:6.1.1

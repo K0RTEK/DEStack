@@ -1,0 +1,1 @@
+FROM debezium/connect:2.5.4.Final
