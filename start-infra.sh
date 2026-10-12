@@ -71,7 +71,7 @@ else
 fi
 
 echo "Запуск UI сервисов и утилит..."
-docker-compose up -d kafka-ui debezium-connect createbuckets pgadmin adminer clickhouse clickhouse-ui
+docker-compose up -d kafka-ui debezium-connect createbuckets pgadmin adminer clickhouse clickhouse-ui grafana
 
 echo "Ожидание 20 секунд для UI сервисов..."
 sleep 20
@@ -92,6 +92,9 @@ fi
 
 echo "Запуск основных сервисов Airflow и Jupyter..."
 docker-compose up -d airflow-scheduler airflow-webserver pyspark-jupyter
+
+echo "Запуск dbt..."
+docker-compose up -d dbt
 
 echo "Запуск Superset (метаданные, миграции, веб-сервер)..."
 docker-compose up -d superset
@@ -147,6 +150,7 @@ check_http_service "Debezium Connect" "http://localhost:8083/connectors" || true
 check_http_service "pgAdmin" "http://localhost:5050" || true
 check_http_service "Adminer" "http://localhost:8082" || true
 check_http_service "ClickHouse UI" "http://localhost:3488" || true
+check_http_service "Grafana" "http://localhost:3000/api/health" || true
 wait_http_service "Airflow" "http://localhost:8080/health" 180 || true
 wait_http_service "ClickHouse" "http://localhost:8123/ping" 120 || true
 wait_http_service "Superset" "http://localhost:8088/health" 240 || true
@@ -168,6 +172,9 @@ echo "     (укажите данные при подключении)"
 echo "  ClickHouse UI:   http://localhost:3488"
 echo "     Логин: clickhouse"
 echo "     Пароль: clickhouse"
+echo "  Grafana:         http://localhost:3000"
+echo "     Логин: admin"
+echo "     Пароль: admin"
 echo ""
 echo "ОСНОВНЫЕ СЕРВИСЫ:"
 echo "  Airflow:         http://localhost:8080"
@@ -178,6 +185,7 @@ echo "     (без пароля)"
 echo "  Superset:        http://localhost:8088"
 echo "     Логин: admin"
 echo "     Пароль: admin"
+echo "  dbt (CLI):       docker-compose exec dbt dbt run"
 echo ""
 echo "БАЗЫ ДАННЫХ:"
 echo "  PostgreSQL (Airflow):    localhost:5432"

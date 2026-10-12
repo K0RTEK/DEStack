@@ -27,12 +27,10 @@
 - **ClickHouse** — колоночная СУБД для аналитики
 - **ClickHouse UI (CH-UI)** — веб-интерфейс для работы с ClickHouse
 - **Apache Superset** — BI-платформа для визуализации и дашбордов
+- **Grafana** — визуализация метрик и дашборды
+- **dbt** — трансформация данных по принципу «трансформация как код» (тесты, документация, зависимости моделей)
 - **MongoDB** — документная СУБД
 - **MinIO** — S3-совместимое хранилище объектов
-
-**В планах:**
-
-- **dbt** — инструмент для трансформации данных по принципу «трансформация как код» с поддержкой тестирования, документации и управления зависимостями моделей
 
 ---
 
@@ -51,7 +49,9 @@
     ├── airflow/             # оркестратор (+ DAGs, логи)
     ├── clickhouse/          # колоночная СУБД
     ├── clickhouse-ui/       # CH-UI
+    ├── dbt/                 # dbt-проект (profiles.yml, models)
     ├── debezium/            # Kafka Connect + CDC-коннекторы
+    ├── grafana/             # визуализация метрик и дашборды
     ├── jupyter/             # JupyterLab + PySpark
     ├── kafka/               # брокер Kafka
     ├── kafka-ui/            # Kafka UI
@@ -114,6 +114,7 @@ docker compose down -v        # остановить и удалить тома
 | pgAdmin | http://localhost:5050 | `admin@example.com` / `admin` |
 | Adminer | http://localhost:8082 | данные указываются при подключении |
 | ClickHouse UI (CH-UI) | http://localhost:3488 | `clickhouse` / `clickhouse` |
+| Grafana | http://localhost:3000 | `admin` / `admin` |
 
 ### Базы данных и хранилища
 
@@ -159,6 +160,8 @@ docker compose down -v        # остановить и удалить тома
 | MinIO client | `bitnamilegacy/minio-client:2025.7.21-debian-12-r3` |
 | ClickHouse | `clickhouse/clickhouse-server:25.8.33.6` |
 | ClickHouse UI | `ghcr.io/caioricciuti/ch-ui:v2.16.0` |
+| Grafana | `grafana/grafana:13.2.3` |
+| dbt | `python:3.12.15-slim-bookworm` + `dbt-core 1.10.9`, `dbt-postgres 1.10.2`, `dbt-clickhouse 1.10.3` |
 | Superset | `apache/superset:5.0.0` (+ `psycopg2-binary`) |
 | Redis (Superset) | `redis:7.4.11-alpine` |
 
@@ -180,3 +183,12 @@ docker compose down -v        # остановить и удалить тома
 - Порт `9009` для ClickHouse native выбран потому, что `9000` занят MinIO.
 - Данные хранятся в именованных томах Docker; `start-infra.sh` использует `down -v`,
   то есть при запуске скрипта данные удаляются.
+- **dbt** работает как долгоживущий контейнер, команды выполняются через `exec`:
+  ```bash
+  docker compose exec dbt dbt debug                 # проверка соединения (target: postgres)
+  docker compose exec dbt dbt run                   # запуск моделей
+  docker compose exec dbt dbt test                  # тесты
+  docker compose exec dbt dbt run --target clickhouse   # запуск на ClickHouse
+  ```
+  Проект лежит в `services/dbt/` (монтируется в `/dbt`): `dbt_project.yml`, `profiles.yml`, `models/`.
+  Соединения настраиваются через env-переменные `DBT_PG_*` и `DBT_CH_*` в `services/dbt/profiles.yml`.

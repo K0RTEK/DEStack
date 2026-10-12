@@ -214,3 +214,7 @@ services/jupyter/requirements.txt
 
 services/airflow/logs
 services/airflow/dags
+
+services/dbt/target
+services/dbt/dbt_packages
+services/dbt/logs

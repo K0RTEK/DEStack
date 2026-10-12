@@ -1,0 +1,22 @@
+destack:
+  target: postgres
+  outputs:
+    postgres:
+      type: postgres
+      host: "{{ env_var('DBT_PG_HOST', 'postgres-app') }}"
+      port: "{{ env_var('DBT_PG_PORT', '5432') | int }}"
+      user: "{{ env_var('DBT_PG_USER', 'app_user') }}"
+      password: "{{ env_var('DBT_PG_PASSWORD', 'app_password') }}"
+      dbname: "{{ env_var('DBT_PG_DB', 'analytics_db') }}"
+      schema: "{{ env_var('DBT_PG_SCHEMA', 'analytics') }}"
+      threads: 4
+
+    clickhouse:
+      type: clickhouse
+      host: "{{ env_var('DBT_CH_HOST', 'clickhouse') }}"
+      port: "{{ env_var('DBT_CH_PORT', '8123') | int }}"
+      user: "{{ env_var('DBT_CH_USER', 'clickhouse') }}"
+      password: "{{ env_var('DBT_CH_PASSWORD', 'clickhouse') }}"
+      schema: "{{ env_var('DBT_CH_SCHEMA', 'analytics') }}"
+      secure: false
+      threads: 4

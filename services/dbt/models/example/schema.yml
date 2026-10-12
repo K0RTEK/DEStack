@@ -1,0 +1,11 @@
+version: 2
+
+models:
+  - name: example
+    description: "Пример модели для проверки работоспособности dbt"
+    columns:
+      - name: id
+        description: "Идентификатор"
+        tests:
+          - not_null
+          - unique
